@@ -1,449 +1,258 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import json
 import platform
 import subprocess
-import logging
+from datetime import datetime
 from pathlib import Path
 
 
 # ============================================================
-# AUTOMATIC DIRECTORIES
+# PATCH AND UPDATE AUTOMATION
+# Cross-platform: Windows + Ubuntu/Linux
+# Non-interactive: suitable for cron and scheduled automation
 # ============================================================
 
-BASE_DIRECTORY = Path(__file__).parent
 
-HOSTNAME = platform.node()
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPORT_DIR = SCRIPT_DIR / "patch_update_reports"
+REPORT_DIR.mkdir(exist_ok=True)
 
-DATA_DIRECTORY = (
-    BASE_DIRECTORY
-    / "patch_update_automation_data"
-    / HOSTNAME
-)
-
-LOG_DIRECTORY = (
-    DATA_DIRECTORY
-    / "logs"
-)
-
-REPORT_DIRECTORY = (
-    DATA_DIRECTORY
-    / "reports"
-)
+TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M%S")
+REPORT_FILE = REPORT_DIR / f"patch_update_report_{TIMESTAMP}.json"
 
 
-LOG_DIRECTORY.mkdir(
-    parents=True,
-    exist_ok=True
-)
-
-REPORT_DIRECTORY.mkdir(
-    parents=True,
-    exist_ok=True
-)
-
-
-# ============================================================
-# LOGGING
-# ============================================================
-
-LOG_FILE = (
-    LOG_DIRECTORY
-    / "patch_update.log"
-)
-
-
-logging.basicConfig(
-    filename=LOG_FILE,
-    level=logging.INFO,
-    format=(
-        "%(asctime)s "
-        "- %(levelname)s "
-        "- %(message)s"
-    )
-)
-
-
-# ============================================================
-# RUN COMMAND
-# ============================================================
-
-def run_command(command):
+def run_command(command, shell=False):
+    """Run a system command and return result."""
 
     try:
-
         result = subprocess.run(
             command,
+            shell=shell,
             capture_output=True,
-            text=True
+            text=True,
+            timeout=1800
         )
 
-        return result
+        return {
+            "command": command if isinstance(command, str) else " ".join(command),
+            "return_code": result.returncode,
+            "stdout": result.stdout.strip(),
+            "stderr": result.stderr.strip(),
+            "success": result.returncode == 0
+        }
+
+    except subprocess.TimeoutExpired:
+        return {
+            "command": command if isinstance(command, str) else " ".join(command),
+            "return_code": -1,
+            "stdout": "",
+            "stderr": "Command timed out",
+            "success": False
+        }
 
     except Exception as error:
+        return {
+            "command": command if isinstance(command, str) else " ".join(command),
+            "return_code": -1,
+            "stdout": "",
+            "stderr": str(error),
+            "success": False
+        }
 
-        logging.error(
-            "Command failed: %s",
-            error
-        )
 
-        return None
+def detect_operating_system():
+    system = platform.system()
 
+    if system == "Windows":
+        return "Windows"
 
-# ============================================================
-# UBUNTU UPDATE AUTOMATION
-# ============================================================
+    if system == "Linux":
+        return "Linux"
+
+    return system
+
 
 def ubuntu_update():
+    """Update Ubuntu/Debian systems automatically."""
 
-    print(
-        "Checking Ubuntu updates..."
-    )
+    print("\nOperating System: Ubuntu/Linux")
+    print("Mode: AUTOMATIC - No confirmation required")
 
-    logging.info(
-        "Running apt update"
-    )
+    report = {
+        "platform": "Linux",
+        "update_check": None,
+        "upgrade": None,
+        "autoremove": None,
+        "reboot_required": False
+    }
 
-
-    # --------------------------------------------------------
-    # REFRESH PACKAGE INFORMATION
-    # --------------------------------------------------------
+    print("\nUpdating package information...")
 
     update_result = run_command(
-        [
-            "sudo",
-            "apt",
-            "update"
-        ]
+        ["sudo", "apt-get", "update", "-y"]
     )
 
+    report["update_check"] = update_result
 
-    if not update_result:
+    if not update_result["success"]:
+        print("FAILED: apt update")
+        return report
 
-        print(
-            "ERROR: apt command failed"
-        )
+    print("Package information updated successfully.")
 
-        return
-
-
-    if update_result.returncode != 0:
-
-        print(
-            "ERROR: apt update failed"
-        )
-
-        logging.error(
-            update_result.stderr
-        )
-
-        return
-
-
-    print(
-        "Package information updated"
-    )
-
-
-    # --------------------------------------------------------
-    # CHECK AVAILABLE UPDATES
-    # --------------------------------------------------------
+    print("\nInstalling available updates automatically...")
 
     upgrade_result = run_command(
-        [
-            "apt",
-            "list",
-            "--upgradable"
-        ]
+        ["sudo", "DEBIAN_FRONTEND=noninteractive", "apt-get", "upgrade", "-y"]
     )
 
+    # If the above environment syntax is unsupported by subprocess,
+    # use the environment variable properly.
+    if not upgrade_result["success"]:
+        environment = os.environ.copy()
+        environment["DEBIAN_FRONTEND"] = "noninteractive"
 
-    if not upgrade_result:
-
-        return
-
-
-    print(
-        "\nAvailable updates:"
-    )
-
-
-    print(
-        upgrade_result.stdout
-    )
-
-
-    logging.info(
-        "Available updates checked"
-    )
-
-
-    # --------------------------------------------------------
-    # ASK USER TO INSTALL
-    # --------------------------------------------------------
-
-    answer = input(
-        "\nInstall updates? (yes/no): "
-    )
-
-
-    if answer.lower() == "yes":
-
-        print(
-            "\nInstalling updates..."
-        )
-
-
-        install_result = run_command(
-            [
-                "sudo",
-                "apt",
-                "upgrade",
-                "-y"
-            ]
-        )
-
-
-        if install_result.returncode == 0:
-
-            print(
-                "Updates installed successfully"
+        try:
+            result = subprocess.run(
+                ["sudo", "apt-get", "upgrade", "-y"],
+                capture_output=True,
+                text=True,
+                timeout=1800,
+                env=environment
             )
 
+            upgrade_result = {
+                "command": "sudo apt-get upgrade -y",
+                "return_code": result.returncode,
+                "stdout": result.stdout.strip(),
+                "stderr": result.stderr.strip(),
+                "success": result.returncode == 0
+            }
 
-            logging.info(
-                "Ubuntu updates installed"
-            )
+        except Exception as error:
+            upgrade_result = {
+                "command": "sudo apt-get upgrade -y",
+                "return_code": -1,
+                "stdout": "",
+                "stderr": str(error),
+                "success": False
+            }
 
+    report["upgrade"] = upgrade_result
 
-        else:
-
-            print(
-                "Update installation failed"
-            )
-
-
-            logging.error(
-                install_result.stderr
-            )
-
-
+    if upgrade_result["success"]:
+        print("Updates installed successfully.")
     else:
+        print("WARNING: Some updates may have failed.")
 
-        print(
-            "Updates not installed"
-        )
+    print("\nRemoving unused packages automatically...")
 
+    autoremove_result = run_command(
+        ["sudo", "apt-get", "autoremove", "-y"]
+    )
 
-# ============================================================
-# WINDOWS UPDATE AUTOMATION
-# ============================================================
+    report["autoremove"] = autoremove_result
+
+    if autoremove_result["success"]:
+        print("Unused packages removed.")
+    else:
+        print("WARNING: Autoremove failed.")
+
+    reboot_check = Path("/var/run/reboot-required")
+
+    if reboot_check.exists():
+        report["reboot_required"] = True
+        print("\nREBOOT REQUIRED")
+        print("A reboot is required to complete some updates.")
+        print("Automatic reboot was NOT performed.")
+    else:
+        print("\nNo reboot required.")
+
+    return report
+
 
 def windows_update():
+    """Update Windows using PowerShell and Windows Update."""
 
-    print(
-        "Checking Windows updates..."
+    print("\nOperating System: Windows")
+    print("Mode: AUTOMATIC - No confirmation required")
+
+    report = {
+        "platform": "Windows",
+        "update_status": None
+    }
+
+    print("\nChecking Windows Update...")
+
+    powershell_command = """
+$ErrorActionPreference = "Continue"
+
+if (-not (Get-Module -ListAvailable -Name PSWindowsUpdate)) {
+    Write-Output "PSWindowsUpdate module is not installed."
+    Write-Output "Install it with:"
+    Write-Output "Install-Module PSWindowsUpdate -Force"
+    exit 2
+}
+
+Import-Module PSWindowsUpdate
+
+Get-WindowsUpdate -AcceptAll -Install -IgnoreReboot
+"""
+
+    result = run_command(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", powershell_command]
     )
 
+    report["update_status"] = result
 
-    logging.info(
-        "Checking Windows updates"
-    )
-
-
-    # --------------------------------------------------------
-    # CHECK PSWINDOWSUPDATE MODULE
-    # --------------------------------------------------------
-
-    module_check = run_command(
-        [
-            "powershell",
-            "-Command",
-            "Get-Module "
-            "-ListAvailable "
-            "-Name "
-            "PSWindowsUpdate"
-        ]
-    )
-
-
-    if not module_check:
-
-        return
-
-
-    if not module_check.stdout.strip():
-
-        print(
-            "PSWindowsUpdate module "
-            "is not installed"
-        )
-
-
-        print(
-            "Install it with: "
-            "Install-Module PSWindowsUpdate"
-        )
-
-
-        logging.warning(
-            "PSWindowsUpdate module "
-            "not installed"
-        )
-
-
-        return
-
-
-    # --------------------------------------------------------
-    # GET AVAILABLE UPDATES
-    # --------------------------------------------------------
-
-    update_result = run_command(
-        [
-            "powershell",
-            "-Command",
-            "Get-WindowsUpdate"
-        ]
-    )
-
-
-    if not update_result:
-
-        return
-
-
-    print(
-        "\nAvailable Windows updates:"
-    )
-
-
-    print(
-        update_result.stdout
-    )
-
-
-    # --------------------------------------------------------
-    # ASK USER TO INSTALL
-    # --------------------------------------------------------
-
-    answer = input(
-        "\nInstall updates? (yes/no): "
-    )
-
-
-    if answer.lower() == "yes":
-
-        install_result = run_command(
-            [
-                "powershell",
-                "-Command",
-                "Install-WindowsUpdate "
-                "-AcceptAll "
-                "-IgnoreReboot"
-            ]
-        )
-
-
-        if install_result.returncode == 0:
-
-            print(
-                "Windows updates "
-                "installed successfully"
-            )
-
-
-            logging.info(
-                "Windows updates installed"
-            )
-
-
-        else:
-
-            print(
-                "Windows update installation "
-                "failed"
-            )
-
-
-            logging.error(
-                install_result.stderr
-            )
-
-
+    if result["success"]:
+        print("Windows updates processed automatically.")
     else:
+        print("WARNING: Windows Update operation failed or requires configuration.")
 
-        print(
-            "Updates not installed"
-        )
+    return report
 
 
-# ============================================================
-# MAIN
-# ============================================================
+def save_report(report):
+    final_report = {
+        "timestamp": datetime.now().isoformat(),
+        "hostname": platform.node(),
+        "operating_system": detect_operating_system(),
+        "automation_mode": "non-interactive",
+        "report": report
+    }
+
+    with open(REPORT_FILE, "w", encoding="utf-8") as file:
+        json.dump(final_report, file, indent=4)
+
+    print("\nReport saved:")
+    print(REPORT_FILE)
+
 
 def main():
+    print("=" * 60)
+    print("PATCH AND UPDATE AUTOMATION")
+    print("=" * 60)
 
-    operating_system = (
-        platform.system()
-    )
+    operating_system = detect_operating_system()
 
+    if operating_system == "Windows":
+        report = windows_update()
 
-    print(
-        "Operating System:",
-        operating_system
-    )
-
-
-    print(
-        "Hostname:",
-        HOSTNAME
-    )
-
-
-    logging.info(
-        "Patch automation started"
-    )
-
-
-    if operating_system == "Linux":
-
-        ubuntu_update()
-
-
-    elif operating_system == "Windows":
-
-        windows_update()
-
+    elif operating_system == "Linux":
+        report = ubuntu_update()
 
     else:
+        print(f"Unsupported operating system: {operating_system}")
+        sys.exit(1)
 
-        print(
-            "Unsupported operating system"
-        )
+    save_report(report)
 
+    print("\nPatch automation completed.")
 
-    logging.info(
-        "Patch automation completed"
-    )
-
-
-# ============================================================
-# START
-# ============================================================
 
 if __name__ == "__main__":
-
-    try:
-
-        main()
-
-
-    except Exception as error:
-
-        logging.exception(
-            "Patch automation failed"
-        )
-
-
-        print(
-            "ERROR:",
-            error
-        )
+    main()
