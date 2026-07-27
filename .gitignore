@@ -1,0 +1,34 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Runtime logs
+logs/
+
+# Generated reports and runtime data
+*_data/
+api_reports/
+patch_update_reports/
+server_data/
+
+# Test files
+security_test_file.txt
+
+# Secrets and local configuration
+.env
+*.env
+config.json
+secrets.json
+credentials.json
+*.key
+*.pem
+
+# OS files
+.DS_Store
+Thumbs.db
