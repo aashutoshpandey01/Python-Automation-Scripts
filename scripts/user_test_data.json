@@ -1,0 +1,50 @@
+{
+    "groups": [
+        "CloudAutomationTest",
+        "NetworkAutomationTest",
+        "SecurityAutomationTest"
+    ],
+
+    "users": [
+        {
+            "username": "cloudtest01",
+            "group": "CloudAutomationTest"
+        },
+        {
+            "username": "cloudtest02",
+            "group": "CloudAutomationTest"
+        },
+        {
+            "username": "cloudtest03",
+            "group": "CloudAutomationTest"
+        },
+        {
+            "username": "networktest01",
+            "group": "NetworkAutomationTest"
+        },
+        {
+            "username": "networktest02",
+            "group": "NetworkAutomationTest"
+        },
+        {
+            "username": "networktest03",
+            "group": "NetworkAutomationTest"
+        },
+        {
+            "username": "securitytest01",
+            "group": "SecurityAutomationTest"
+        },
+        {
+            "username": "securitytest02",
+            "group": "SecurityAutomationTest"
+        },
+        {
+            "username": "securitytest03",
+            "group": "SecurityAutomationTest"
+        },
+        {
+            "username": "securitytest04",
+            "group": "SecurityAutomationTest"
+        }
+    ]
+}
