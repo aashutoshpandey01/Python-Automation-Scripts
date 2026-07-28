@@ -1,733 +1,377 @@
-import platform
-import socket
-import shutil
-import psutil
-import logging
+#!/usr/bin/env python3
+"""Cross-platform server health monitoring for Ubuntu Server and Windows Server."""
+
+from __future__ import annotations
+
+import argparse
 import json
+import logging
+import os
+import platform
+import shutil
+import socket
+import subprocess
+import sys
+from datetime import datetime, timezone
 from pathlib import Path
-from datetime import datetime
+from typing import Any
+
+try:
+    import psutil
+except ImportError:  # Report a clear dependency error after the log path exists.
+    psutil = None  # type: ignore[assignment]
 
 
-# ============================================================
-# CONFIGURATION
-# ============================================================
-
-CPU_WARNING_THRESHOLD = 80
-CPU_CRITICAL_THRESHOLD = 90
-
-MEMORY_WARNING_THRESHOLD = 80
-MEMORY_CRITICAL_THRESHOLD = 90
-
-DISK_WARNING_THRESHOLD = 80
-DISK_CRITICAL_THRESHOLD = 90
-
-
-# ============================================================
-# PATHS
-# ============================================================
-
-BASE_DIRECTORY = Path(__file__).parent
-
+SCRIPT_NAME = "server_health_monitor"
+OPERATING_SYSTEM = platform.system()
 HOSTNAME = socket.gethostname()
-
-SERVER_DIRECTORY = (
-    BASE_DIRECTORY
-    / "server_data"
-    / HOSTNAME
-)
-
-REPORT_DIRECTORY = (
-    SERVER_DIRECTORY
-    / "reports"
-)
-
-LOG_DIRECTORY = (
-    SERVER_DIRECTORY
-    / "logs"
-)
+RUN_TIME = datetime.now(timezone.utc)
+RUN_ID = f"HEALTH-{RUN_TIME:%Y%m%d-%H%M%S}"
 
 
-REPORT_DIRECTORY.mkdir(
-    parents=True,
-    exist_ok=True
-)
-
-LOG_DIRECTORY.mkdir(
-    parents=True,
-    exist_ok=True
-)
-
-
-# ============================================================
-# LOGGING
-# ============================================================
-
-LOG_FILE = (
-    LOG_DIRECTORY
-    / "server_health.log"
-)
-
-
-logging.basicConfig(
-
-    filename=LOG_FILE,
-
-    level=logging.INFO,
-
-    format=(
-        "%(asctime)s "
-        "- %(levelname)s "
-        "- %(message)s"
-    )
-
-)
-
-
-# ============================================================
-# SYSTEM INFORMATION
-# ============================================================
-
-def get_system_information():
-
+def get_platform_paths() -> dict[str, Path]:
+    """Select the approved hierarchy before performing any OS-specific checks."""
+    if OPERATING_SYSTEM == "Windows":
+        suite_root = Path(r"C:\AdminAutomation\python-scripts")
+        script_directory = suite_root / "scripts"
+    elif OPERATING_SYSTEM == "Linux":
+        suite_root = Path("/home/cloudadmin/python-scripts")
+        script_directory = suite_root
+    else:
+        raise RuntimeError(f"Unsupported operating system: {OPERATING_SYSTEM}")
     return {
-
-        "hostname": socket.gethostname(),
-
-        "operating_system":
-        platform.system(),
-
-        "platform":
-        platform.platform(),
-
-        "processor":
-        platform.processor(),
-
-        "python_version":
-        platform.python_version(),
-
-        "boot_time":
-        datetime.fromtimestamp(
-            psutil.boot_time()
-        ).strftime(
-            "%Y-%m-%d %H:%M:%S"
-        )
-
+        "suite_root": suite_root,
+        "script_directory": script_directory,
+        "log": suite_root / "logs" / SCRIPT_NAME,
+        "report": suite_root / "reports" / SCRIPT_NAME,
+        "data": suite_root / "data" / SCRIPT_NAME,
     }
 
 
-# ============================================================
-# CPU CHECK
-# ============================================================
-
-def check_cpu():
-
-    cpu_usage = psutil.cpu_percent(
-        interval=1
-    )
-
-
-    if cpu_usage >= CPU_CRITICAL_THRESHOLD:
-
-        status = "CRITICAL"
-
-
-    elif cpu_usage >= CPU_WARNING_THRESHOLD:
-
-        status = "WARNING"
-
-
-    else:
-
-        status = "HEALTHY"
-
-
-    return {
-
-        "usage_percentage":
-        cpu_usage,
-
-        "status":
-        status
-
-    }
-
-
-# ============================================================
-# MEMORY CHECK
-# ============================================================
-
-def check_memory():
-
-    memory = psutil.virtual_memory()
-
-
-    total_gb = (
-        memory.total
-        / (1024 ** 3)
-    )
-
-    used_gb = (
-        memory.used
-        / (1024 ** 3)
-    )
-
-    available_gb = (
-        memory.available
-        / (1024 ** 3)
-    )
-
-
-    usage_percentage = memory.percent
-
-
-    if usage_percentage >= MEMORY_CRITICAL_THRESHOLD:
-
-        status = "CRITICAL"
-
-
-    elif usage_percentage >= MEMORY_WARNING_THRESHOLD:
-
-        status = "WARNING"
-
-
-    else:
-
-        status = "HEALTHY"
-
-
-    return {
-
-        "total_gb":
-        round(total_gb, 2),
-
-        "used_gb":
-        round(used_gb, 2),
-
-        "available_gb":
-        round(available_gb, 2),
-
-        "usage_percentage":
-        usage_percentage,
-
-        "status":
-        status
-
-    }
-
-
-# ============================================================
-# GET VOLUMES / FILESYSTEMS
-# ============================================================
-
-def get_volumes():
-
-    operating_system = platform.system()
-
-
-    if operating_system == "Windows":
-
-        return [
-
-            "C:\\",
-            "D:\\",
-            "E:\\",
-            "F:\\"
-
-        ]
-
-
-    elif operating_system == "Linux":
-
-        return [
-
-            "/",
-            "/home",
-            "/var",
-            "/mnt"
-
-        ]
-
-
-    else:
-
-        return []
-
-
-# ============================================================
-# DISK CHECK
-# ============================================================
-
-def check_disk(volume):
-
+PATHS = get_platform_paths()
+for path_name in ("script_directory", "log", "report", "data"):
+    PATHS[path_name].mkdir(parents=True, exist_ok=True)
+
+LOG_FILE = PATHS["log"] / f"{SCRIPT_NAME}_{RUN_TIME:%Y%m%d_%H%M%S}.log"
+CONFIG_FILE = PATHS["data"] / f"{SCRIPT_NAME}.json"
+DEFAULT_CONFIG: dict[str, Any] = {
+    "cpu_warning_percent": 80,
+    "cpu_critical_percent": 90,
+    "memory_warning_percent": 80,
+    "memory_critical_percent": 90,
+    "disk_warning_percent": 80,
+    "disk_critical_percent": 90,
+    "command_timeout_seconds": 30,
+}
+
+
+def load_configuration() -> dict[str, Any]:
+    """Create the per-script configuration once, then preserve user changes."""
+    if not CONFIG_FILE.exists():
+        CONFIG_FILE.write_text(json.dumps(DEFAULT_CONFIG, indent=2), encoding="utf-8")
+        return DEFAULT_CONFIG.copy()
     try:
-
-        total, used, free = (
-            shutil.disk_usage(volume)
-        )
-
-
-        total_gb = (
-            total
-            / (1024 ** 3)
-        )
-
-        used_gb = (
-            used
-            / (1024 ** 3)
-        )
-
-        free_gb = (
-            free
-            / (1024 ** 3)
-        )
+        loaded = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise ValueError("configuration root must be an object")
+        return {**DEFAULT_CONFIG, **loaded}
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        print(f"Configuration error; using defaults: {error}", file=sys.stderr)
+        return DEFAULT_CONFIG.copy()
 
 
-        usage_percentage = (
-            used
-            / total
-        ) * 100
+CONFIG = load_configuration()
+logging.basicConfig(
+    filename=LOG_FILE,
+    encoding="utf-8",
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
 
 
-        if usage_percentage >= DISK_CRITICAL_THRESHOLD:
-
-            status = "CRITICAL"
-
-
-        elif usage_percentage >= DISK_WARNING_THRESHOLD:
-
-            status = "WARNING"
-
-
-        else:
-
-            status = "HEALTHY"
+def parse_arguments() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Cross-platform server health monitor")
+    parser.add_argument(
+        "--schedule-info",
+        action="store_true",
+        help="Create the Windows launcher when applicable and print Task Scheduler/cron examples.",
+    )
+    return parser.parse_args()
 
 
-        return {
-
-            "volume":
-            volume,
-
-            "total_gb":
-            round(total_gb, 2),
-
-            "used_gb":
-            round(used_gb, 2),
-
-            "free_gb":
-            round(free_gb, 2),
-
-            "usage_percentage":
-            round(
-                usage_percentage,
-                2
-            ),
-
-            "status":
-            status
-
-        }
+def require_psutil() -> Any:
+    if psutil is None:
+        raise RuntimeError("The psutil package is required. Install it in the server's Python environment before running this monitor.")
+    return psutil
 
 
-    except FileNotFoundError:
-
-        return {
-
-            "volume":
-            volume,
-
-            "status":
-            "NOT_FOUND",
-
-            "message":
-            "Volume not found - skipped"
-
-        }
-
-
-    except PermissionError:
-
-        return {
-
-            "volume":
-            volume,
-
-            "status":
-            "PERMISSION_DENIED",
-
-            "message":
-            "Permission denied"
-
-        }
-
-
-# ============================================================
-# OVERALL HEALTH STATUS
-# ============================================================
-
-def get_overall_status(
-
-    cpu_result,
-    memory_result,
-    disk_results
-
-):
-
-    statuses = [
-
-        cpu_result["status"],
-
-        memory_result["status"]
-
-    ]
-
-
-    for disk in disk_results:
-
-        statuses.append(
-            disk["status"]
-        )
-
-
-    if "CRITICAL" in statuses:
-
+def status_for(value: float, warning: float, critical: float) -> str:
+    if value >= critical:
         return "CRITICAL"
-
-
-    elif "WARNING" in statuses:
-
+    if value >= warning:
         return "WARNING"
+    return "HEALTHY"
 
 
-    else:
-
-        return "HEALTHY"
-
-
-# ============================================================
-# RUN HEALTH CHECK
-# ============================================================
-
-def run_health_check():
-
-    logging.info(
-        "Server health check started"
-    )
-
-
-    system_information = (
-        get_system_information()
-    )
-
-
-    cpu_result = (
-        check_cpu()
-    )
-
-
-    memory_result = (
-        check_memory()
-    )
-
-
-    disk_results = []
-
-
-    for volume in get_volumes():
-
-        result = check_disk(
-            volume
+def run_command(command: list[str]) -> dict[str, Any]:
+    executable = command[0]
+    if shutil.which(executable) is None:
+        return {"success": False, "output": "", "error": f"Required executable was not found: {executable}", "return_code": -1}
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=int(CONFIG["command_timeout_seconds"]),
+            check=False,
         )
+        if result.returncode != 0:
+            logging.warning("Command failed (%s): %s", result.returncode, " ".join(command[:3]))
+        return {
+            "success": result.returncode == 0,
+            "output": result.stdout.strip(),
+            "error": result.stderr.strip(),
+            "return_code": result.returncode,
+        }
+    except subprocess.TimeoutExpired:
+        return {"success": False, "output": "", "error": "Command timed out", "return_code": -1}
+    except OSError as error:
+        logging.exception("Health command failed to start: %s", executable)
+        return {"success": False, "output": "", "error": str(error), "return_code": -1}
 
 
-        disk_results.append(
-            result
-        )
+def run_powershell(script: str) -> dict[str, Any]:
+    executable = shutil.which("powershell.exe") or shutil.which("powershell")
+    if executable is None:
+        return {"success": False, "output": "", "error": "Windows PowerShell was not found.", "return_code": -1}
+    return run_command([executable, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", script])
 
 
-    overall_status = (
-        get_overall_status(
-
-            cpu_result,
-
-            memory_result,
-
-            disk_results
-
-        )
-    )
-
-
-    health_report = {
-
-        "timestamp":
-        datetime.now().strftime(
-            "%Y-%m-%d %H:%M:%S"
-        ),
-
-        "overall_status":
-        overall_status,
-
-        "system":
-        system_information,
-
-        "cpu":
-        cpu_result,
-
-        "memory":
-        memory_result,
-
-        "disks":
-        disk_results
-
+def get_system_information() -> dict[str, Any]:
+    module = require_psutil()
+    boot_time = datetime.fromtimestamp(module.boot_time(), timezone.utc)
+    uptime_hours = (datetime.now(timezone.utc) - boot_time).total_seconds() / 3600
+    return {
+        "hostname": HOSTNAME,
+        "operating_system": OPERATING_SYSTEM,
+        "platform": platform.platform(),
+        "processor": platform.processor(),
+        "architecture": platform.machine(),
+        "python_version": platform.python_version(),
+        "boot_time": boot_time.isoformat(),
+        "uptime_hours": round(uptime_hours, 2),
     }
 
 
-    return health_report
+def check_cpu() -> dict[str, Any]:
+    usage = require_psutil().cpu_percent(interval=1)
+    return {
+        "usage_percentage": usage,
+        "status": status_for(usage, float(CONFIG["cpu_warning_percent"]), float(CONFIG["cpu_critical_percent"])),
+    }
 
 
-# ============================================================
-# SAVE JSON REPORT
-# ============================================================
+def check_memory() -> dict[str, Any]:
+    memory = require_psutil().virtual_memory()
+    return {
+        "total_gb": round(memory.total / 1024**3, 2),
+        "used_gb": round(memory.used / 1024**3, 2),
+        "available_gb": round(memory.available / 1024**3, 2),
+        "usage_percentage": memory.percent,
+        "status": status_for(memory.percent, float(CONFIG["memory_warning_percent"]), float(CONFIG["memory_critical_percent"])),
+    }
 
-def save_report(health_report):
 
-    timestamp = (
-        datetime.now().strftime(
-            "%Y-%m-%d_%H-%M-%S"
+def get_disks() -> list[dict[str, Any]]:
+    module = require_psutil()
+    disks: list[dict[str, Any]] = []
+    seen_mounts: set[str] = set()
+    for partition in module.disk_partitions(all=False):
+        if partition.mountpoint in seen_mounts:
+            continue
+        seen_mounts.add(partition.mountpoint)
+        try:
+            usage = module.disk_usage(partition.mountpoint)
+        except (OSError, PermissionError) as error:
+            logging.warning("Could not read disk usage for %s: %s", partition.mountpoint, error)
+            continue
+        disks.append(
+            {
+                "mount": partition.mountpoint,
+                "filesystem": partition.fstype,
+                "total_gb": round(usage.total / 1024**3, 2),
+                "free_gb": round(usage.free / 1024**3, 2),
+                "usage_percentage": round(usage.percent, 2),
+                "status": status_for(usage.percent, float(CONFIG["disk_warning_percent"]), float(CONFIG["disk_critical_percent"])),
+            }
         )
-    )
+    return disks
 
 
-    report_file = (
-
-        REPORT_DIRECTORY
-        / f"health_{timestamp}.json"
-
-    )
-
-
-    with open(
-        report_file,
-        "w"
-    ) as file:
-
-        json.dump(
-
-            health_report,
-
-            file,
-
-            indent=4
-
-        )
+def check_network() -> dict[str, Any]:
+    network = require_psutil().net_io_counters()
+    return {
+        "bytes_sent_mb": round(network.bytes_sent / 1024**2, 2),
+        "bytes_received_mb": round(network.bytes_recv / 1024**2, 2),
+        "packets_sent": network.packets_sent,
+        "packets_received": network.packets_recv,
+        "errors_in": network.errin,
+        "errors_out": network.errout,
+    }
 
 
+def check_processes() -> dict[str, int]:
+    module = require_psutil()
+    count = 0
+    for _ in module.process_iter():
+        count += 1
+    return {"total_processes": count}
+
+
+def platform_health_details() -> dict[str, Any]:
+    """Collect an additional health indicator using commands for the active OS only."""
+    if OPERATING_SYSTEM == "Linux":
+        load_average: list[float] | None
+        try:
+            load_average = [round(value, 2) for value in os.getloadavg()]
+        except (AttributeError, OSError):
+            load_average = None
+        if shutil.which("systemctl"):
+            command = run_command(["systemctl", "is-system-running"])
+            service_manager_state = command["output"] or command["error"]
+        else:
+            service_manager_state = "systemctl not available"
+        return {"platform": "Linux", "load_average_1_5_15": load_average, "systemd_state": service_manager_state}
+
+    if OPERATING_SYSTEM == "Windows":
+        command = run_powershell("""
+$OperatingSystem = Get-CimInstance Win32_OperatingSystem
+[PSCustomObject]@{
+    LastBootUpTime = $OperatingSystem.LastBootUpTime
+    FreePhysicalMemoryMB = [math]::Round($OperatingSystem.FreePhysicalMemory / 1024, 2)
+    TotalVisibleMemoryMB = [math]::Round($OperatingSystem.TotalVisibleMemorySize / 1024, 2)
+} | ConvertTo-Json -Compress
+""")
+        try:
+            details: Any = json.loads(command["output"]) if command["success"] else {}
+        except json.JSONDecodeError:
+            details = {"raw_output": command["output"]}
+        return {"platform": "Windows", "windows_operating_system": details, "error": command["error"]}
+
+    return {"platform": OPERATING_SYSTEM, "status": "UNSUPPORTED"}
+
+
+def calculate_health_status(cpu: dict[str, Any], memory: dict[str, Any], disks: list[dict[str, Any]]) -> str:
+    statuses = [cpu["status"], memory["status"], *(disk["status"] for disk in disks)]
+    if "CRITICAL" in statuses:
+        return "CRITICAL"
+    if "WARNING" in statuses:
+        return "WARNING"
+    return "HEALTHY"
+
+
+def create_windows_launcher() -> Path | None:
+    """Create the safe PowerShell entry point used by Windows Task Scheduler."""
+    if OPERATING_SYSTEM != "Windows":
+        return None
+    launcher_file = PATHS["script_directory"] / f"{SCRIPT_NAME}.ps1"
+    launcher = r'''# Generated by server_health_monitor.py. Performs read-only health checks.
+[CmdletBinding()]
+param()
+
+$ErrorActionPreference = 'Stop'
+$ScriptPath = Join-Path $PSScriptRoot 'server_health_monitor.py'
+$PyLauncher = Get-Command py.exe -ErrorAction SilentlyContinue
+
+if ($PyLauncher) {
+    & $PyLauncher.Source -3 $ScriptPath
+} else {
+    & python.exe $ScriptPath
+}
+
+exit $LASTEXITCODE
+'''
+    try:
+        if not launcher_file.exists() or launcher_file.read_text(encoding="utf-8") != launcher:
+            launcher_file.write_text(launcher, encoding="utf-8")
+        logging.info("Windows Task Scheduler launcher ready: %s", launcher_file)
+        return launcher_file
+    except OSError as error:
+        logging.exception("Could not create the Windows launcher: %s", error)
+        return None
+
+
+def get_schedule_information(launcher_file: Path | None) -> dict[str, str]:
+    if OPERATING_SYSTEM == "Windows":
+        launcher = launcher_file or PATHS["script_directory"] / f"{SCRIPT_NAME}.ps1"
+        return {
+            "task_scheduler_program": "powershell.exe",
+            "task_scheduler_arguments": f'-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{launcher}"',
+            "note": "Schedule at the desired collection interval. The monitor performs read-only checks.",
+        }
+    return {
+        "cron_example": f"*/15 * * * * /usr/bin/python3 {PATHS['script_directory'] / f'{SCRIPT_NAME}.py'} >> {PATHS['log'] / 'cron.log'} 2>&1",
+        "note": "The example collects health data every 15 minutes and redirects cron output to this monitor's log directory.",
+    }
+
+
+def save_report(report: dict[str, Any]) -> Path:
+    report_file = PATHS["report"] / f"health_report_{RUN_TIME:%Y%m%d_%H%M%S}.json"
+    report_file.write_text(json.dumps(report, indent=2, default=str), encoding="utf-8")
+    logging.info("Health report saved: %s", report_file)
     return report_file
 
 
-# ============================================================
-# DISPLAY RESULT
-# ============================================================
+def main() -> int:
+    args = parse_arguments()
+    launcher_file = create_windows_launcher()
+    if args.schedule_info:
+        print(json.dumps({"run_id": RUN_ID, "operating_system": OPERATING_SYSTEM, "schedule": get_schedule_information(launcher_file)}, indent=2))
+        logging.info("Scheduler information requested for %s", RUN_ID)
+        return 0
 
-def display_result(health_report):
+    logging.info("Server health monitoring started: %s on %s", RUN_ID, OPERATING_SYSTEM)
+    cpu = check_cpu()
+    memory = check_memory()
+    disks = get_disks()
+    network = check_network()
+    processes = check_processes()
+    report: dict[str, Any] = {
+        "run_id": RUN_ID,
+        "timestamp": RUN_TIME.isoformat(),
+        "automation": "SERVER_HEALTH_MONITOR",
+        "hostname": HOSTNAME,
+        "overall_status": calculate_health_status(cpu, memory, disks),
+        "system": get_system_information(),
+        "platform_health": platform_health_details(),
+        "cpu": cpu,
+        "memory": memory,
+        "disks": disks,
+        "network": network,
+        "processes": processes,
+        "log_file": str(LOG_FILE),
+    }
+    report_file = save_report(report)
+    print(json.dumps({
+        "run_id": RUN_ID,
+        "hostname": HOSTNAME,
+        "operating_system": OPERATING_SYSTEM,
+        "overall_status": report["overall_status"],
+        "cpu": cpu,
+        "memory": memory,
+        "disks_checked": len(disks),
+        "report": str(report_file),
+        "log": str(LOG_FILE),
+        "scheduler": get_schedule_information(launcher_file),
+    }, indent=2))
+    logging.info("Server health monitoring completed: %s; status=%s", RUN_ID, report["overall_status"])
+    return 0
 
-    print("\n")
-    print("=" * 60)
-
-    print(
-        "SERVER HEALTH MONITORING"
-    )
-
-    print("=" * 60)
-
-
-    system = (
-        health_report["system"]
-    )
-
-
-    print(
-        "Hostname:",
-        system["hostname"]
-    )
-
-
-    print(
-        "Operating System:",
-        system["operating_system"]
-    )
-
-
-    print(
-        "Overall Status:",
-        health_report[
-            "overall_status"
-        ]
-    )
-
-
-    print("\nCPU")
-
-    print(
-        "Usage:",
-        health_report[
-            "cpu"
-        ][
-            "usage_percentage"
-        ],
-        "%"
-    )
-
-
-    print(
-        "Status:",
-        health_report[
-            "cpu"
-        ][
-            "status"
-        ]
-    )
-
-
-    print("\nMEMORY")
-
-    print(
-        "Usage:",
-        health_report[
-            "memory"
-        ][
-            "usage_percentage"
-        ],
-        "%"
-    )
-
-
-    print(
-        "Status:",
-        health_report[
-            "memory"
-        ][
-            "status"
-        ]
-    )
-
-
-    print("\nDISKS")
-
-
-    for disk in health_report["disks"]:
-
-        print(
-            "\nVolume:",
-            disk["volume"]
-        )
-
-
-        print(
-            "Status:",
-            disk["status"]
-        )
-
-
-        if "usage_percentage" in disk:
-
-            print(
-                "Usage:",
-                disk[
-                    "usage_percentage"
-                ],
-                "%"
-            )
-
-
-            print(
-                "Free:",
-                disk[
-                    "free_gb"
-                ],
-                "GB"
-            )
-
-
-        else:
-
-            print(
-                disk["message"]
-            )
-
-
-# ============================================================
-# MAIN
-# ============================================================
-
-def main():
-
-    try:
-
-        health_report = (
-            run_health_check()
-        )
-
-
-        report_file = (
-            save_report(
-                health_report
-            )
-        )
-
-
-        display_result(
-            health_report
-        )
-
-
-        print(
-            "\nReport saved at:",
-            report_file
-        )
-
-
-        logging.info(
-            "Server health check completed"
-        )
-
-
-        if health_report[
-            "overall_status"
-        ] == "CRITICAL":
-
-            logging.critical(
-                "Server health is CRITICAL"
-            )
-
-
-        elif health_report[
-            "overall_status"
-        ] == "WARNING":
-
-            logging.warning(
-                "Server health is WARNING"
-            )
-
-
-    except Exception as error:
-
-        logging.exception(
-            "Health check failed"
-        )
-
-
-        print(
-            "ERROR:",
-            error
-        )
-
-
-# ============================================================
-# START PROGRAM
-# ============================================================
 
 if __name__ == "__main__":
-
-    main()
+    try:
+        raise SystemExit(main())
+    except Exception as error:
+        logging.exception("Health monitoring failed")
+        print(f"ERROR: {error}", file=sys.stderr)
+        raise SystemExit(1)

@@ -1,26 +1,63 @@
-# Python cache
+# =========================
+# Python Cache
+# =========================
 __pycache__/
 *.py[cod]
 *$py.class
 
-# Virtual environments
+# =========================
+# Virtual Environments
+# =========================
 .venv/
 venv/
 env/
 
-# Runtime logs
+# =========================
+# Runtime Logs
+# =========================
 logs/
 
-# Generated reports and runtime data
-*_data/
-api_reports/
-patch_update_reports/
-server_data/
+# =========================
+# Generated Reports
+# =========================
+reports/
 
-# Test files
+# =========================
+# Automation Data
+# =========================
+data/
+
+# =========================
+# Backup Files
+# =========================
+backups/
+
+# =========================
+# Service State Files
+# =========================
+state/
+
+# =========================
+# Integrity Baselines
+# =========================
+integrity/
+
+# =========================
+# Archives
+# =========================
+archives/
+
+# =========================
+# Temporary/Test Files
+# =========================
+*.tmp
+*.temp
+*.bak
 security_test_file.txt
 
-# Secrets and local configuration
+# =========================
+# Secrets / Credentials
+# =========================
 .env
 *.env
 config.json
@@ -29,6 +66,14 @@ credentials.json
 *.key
 *.pem
 
-# OS files
+# =========================
+# OS Generated Files
+# =========================
 .DS_Store
 Thumbs.db
+
+# =========================
+# IDE Files
+# =========================
+.idea/
+.vscode/
