@@ -65,7 +65,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "windows_disk_path": "C:\\",
     "linux_disk_path": "/",
     "email": {
-        "enabled": False,
+        "enabled": True,
         "recipient": os.getenv("ALERT_RECEIVER", ""),
         "sender": os.getenv("SMTP_EMAIL", ""),
         "smtp_server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
