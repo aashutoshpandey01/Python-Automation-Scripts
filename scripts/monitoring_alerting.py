@@ -7,6 +7,7 @@ import argparse
 import json
 import logging
 import os
+from dotenv import load_dotenv
 import platform
 import smtplib
 import sys
@@ -16,6 +17,12 @@ from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Any
+
+
+if platform.system() == "Windows":
+    load_dotenv("../config/windows-server.env")
+else:
+    load_dotenv("../config/ubuntu-server.env")
 
 
 SCRIPT_NAME = "monitoring_alerting"
@@ -59,10 +66,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "linux_disk_path": "/",
     "email": {
         "enabled": False,
-        "recipient": "",
-        "sender": "",
-        "smtp_server": "smtp.gmail.com",
-        "smtp_port": 587,
+        "recipient": os.getenv("ALERT_RECEIVER", ""),
+        "sender": os.getenv("SMTP_EMAIL", ""),
+        "smtp_server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
+        "smtp_port": int(os.getenv("SMTP_PORT", "587")),
         "password_environment_variable": "MONITORING_SMTP_PASSWORD",
     },
     "microsoft_teams": {"enabled": False, "webhook_url": ""},
