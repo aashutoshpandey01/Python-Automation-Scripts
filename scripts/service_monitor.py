@@ -241,7 +241,7 @@ def create_windows_launcher() -> Path | None:
     """Create the Task Scheduler PowerShell entry point on Windows only."""
     if OPERATING_SYSTEM != "Windows":
         return None
-    launcher_directory = PATHS["base_directory"] / "taskscheduler" / SCRIPT_NAME
+    launcher_directory = PATHS["suite_root"] / "taskscheduler" / SCRIPT_NAME
     launcher_directory.mkdir(parents=True, exist_ok=True)
 
     launcher_file = launcher_directory / f"{SCRIPT_NAME}.ps1"
@@ -277,7 +277,7 @@ exit $LASTEXITCODE
 
 def get_schedule_information(launcher_file: Path | None) -> dict[str, str]:
     if OPERATING_SYSTEM == "Windows":
-        launcher = launcher_file or (PATHS["base_directory"] / "taskscheduler" / SCRIPT_NAME / f"{SCRIPT_NAME}.ps1")
+        launcher = launcher_file or (PATHS["suite_root"] / "taskscheduler" / SCRIPT_NAME / f"{SCRIPT_NAME}.ps1")
         return {
             "task_scheduler_program": "powershell.exe",
             "task_scheduler_arguments": f'-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{launcher}"',
