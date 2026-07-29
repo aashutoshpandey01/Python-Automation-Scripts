@@ -71,7 +71,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "network_timeout_seconds": 10,
     "https_host_overrides": {"google.com": "www.google.com"},
     "email": {
-        "enabled": False,
+        "enabled": True,
         "smtp_server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
         "smtp_port": int(os.getenv("SMTP_PORT", "587")),
         "sender": os.getenv("SMTP_EMAIL", ""),
