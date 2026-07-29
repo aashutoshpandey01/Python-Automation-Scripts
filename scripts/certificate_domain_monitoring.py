@@ -7,6 +7,7 @@ import argparse
 import json
 import logging
 import os
+from dotenv import load_dotenv
 import platform
 import smtplib
 import socket
@@ -23,6 +24,12 @@ try:
     import certifi
 except ImportError:
     certifi = None  # type: ignore[assignment]
+
+
+if platform.system() == "Windows":
+    load_dotenv("../config/windows-server.env")
+else:
+    load_dotenv("../config/ubuntu-server.env")
 
 
 SCRIPT_NAME = "certificate_domain_monitoring"
@@ -65,10 +72,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "https_host_overrides": {"google.com": "www.google.com"},
     "email": {
         "enabled": False,
-        "smtp_server": "smtp.gmail.com",
-        "smtp_port": 587,
-        "sender": "",
-        "receiver": "",
+        "smtp_server": os.getenv("SMTP_SERVER", "smtp.gmail.com"),
+        "smtp_port": int(os.getenv("SMTP_PORT", "587")),
+        "sender": os.getenv("SMTP_EMAIL", ""),
+        "receiver": os.getenv("ALERT_RECEIVER", ""),
         "password_environment_variable": "CERTIFICATE_MONITOR_SMTP_PASSWORD",
     },
 }
