@@ -127,8 +127,8 @@ If a notification service is unavailable or not configured, the script records t
 
 Current alert recipient:
 
-```text id="jlkd5x"
-exoticaashu325@gmail.com
+```text id="jlkd5x"e
+<Your Email>
 ```
 
 For production environments, SMTP credentials or App Passwords should be stored securely using environment variables or a secure credential manager rather than hardcoded into scripts.
